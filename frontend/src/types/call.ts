@@ -14,11 +14,19 @@ export interface ToolCallEvent {
 export interface CallRecord {
   id: string;
   call_sid: string;
+  direction?: 'inbound' | 'outbound';
   caller: string;
   recipient: string;
-  status: 'active' | 'completed' | 'failed';
+  status: 'active' | 'completed' | 'failed' | 'transferred';
   duration_seconds: number;
   turns_count: number;
+  primary_intent?: string;
+  extracted_entities?: Record<string, any>;
+  sentiment_score?: number;
+  sentiment_label?: string;
+  latency_profile?: Record<string, any>;
+  recording_url?: string;
+  pci_sanitized?: boolean;
   transcript: CallTurn[];
   tools_used: ToolCallEvent[];
   created_at: string;
