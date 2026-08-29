@@ -1,0 +1,11 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+.git
+.gitignore
+*.log
+voice_agent.db
+test_e2e.py
+verify_system.py
