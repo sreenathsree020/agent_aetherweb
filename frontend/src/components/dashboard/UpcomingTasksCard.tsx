@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CheckCircle, Circle, Plus, Check, Calendar } from 'lucide-react';
+import { Plus, Check } from 'lucide-react';
 import { TaskItem } from '../../types/call';
 import { addonService } from '../../services/api';
 
@@ -49,76 +49,67 @@ export const UpcomingTasksCard: React.FC<Props> = ({ tasks = [], onTaskToggled }
   };
 
   return (
-    <div className="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-sm flex flex-col justify-between h-full">
+    <div className="p-5 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200/70 dark:border-zinc-800/70 shadow-2xs flex flex-col justify-between h-full">
       {/* Header */}
-      <div className="flex items-center justify-between pb-3 mb-2">
-        <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 tracking-tight">
-          Upcoming Tasks
-        </h3>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
-          >
-            <Plus size={12} />
-            <span>Add</span>
-          </button>
-          <span className="text-slate-300 dark:text-slate-700">|</span>
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline"
-          >
-            View all
-          </button>
+      <div className="flex items-center justify-between pb-2 mb-2 border-b border-zinc-100 dark:border-zinc-800/60">
+        <div>
+          <h3 className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 uppercase tracking-wider">
+            Follow-up Queue
+          </h3>
+          <span className="text-[11px] text-zinc-400 font-mono">
+            {localTasks.filter((t) => !t.completed).length} pending actions
+          </span>
         </div>
+        <button
+          onClick={() => setShowAddModal(true)}
+          className="px-2 py-1 rounded-md border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-[11px] font-medium text-zinc-700 dark:text-zinc-300 transition flex items-center gap-1"
+        >
+          <Plus size={11} />
+          <span>Add</span>
+        </button>
       </div>
 
       {/* Task List */}
-      <div className="space-y-3.5 flex-1 overflow-y-auto pr-0.5">
+      <div className="space-y-2.5 flex-1 overflow-y-auto pr-0.5">
         {localTasks.map((t) => (
           <div
             key={t.id}
-            className="flex items-center justify-between group hover:bg-slate-50/60 dark:hover:bg-slate-800/30 p-1.5 rounded-xl transition"
+            className="flex items-center justify-between group hover:bg-zinc-50/70 dark:hover:bg-zinc-800/40 px-2 py-1.5 rounded-lg transition"
           >
-            {/* Left: Checkbox Icon + Task Name */}
-            <div className="flex items-center gap-3 flex-1 min-w-0 pr-3">
+            <div className="flex items-center gap-2.5 flex-1 min-w-0 pr-2">
               <button
                 type="button"
                 onClick={() => toggleTask(t.id)}
-                className="shrink-0 text-emerald-500 hover:scale-110 transition-transform focus:outline-none"
+                className="shrink-0 focus:outline-none"
                 title={t.completed ? 'Mark incomplete' : 'Mark complete'}
               >
                 {t.completed ? (
-                  <div className="w-5 h-5 rounded-full border-2 border-emerald-500 bg-emerald-50 dark:bg-emerald-950 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
-                    <Check size={11} strokeWidth={3} />
+                  <div className="w-4 h-4 rounded border border-emerald-500 bg-emerald-500 text-white flex items-center justify-center">
+                    <Check size={10} strokeWidth={3} />
                   </div>
                 ) : (
-                  <div className="w-5 h-5 rounded-full border-2 border-slate-300 dark:border-slate-600 hover:border-emerald-400 flex items-center justify-center transition" />
+                  <div className="w-4 h-4 rounded border border-zinc-300 dark:border-zinc-700 hover:border-emerald-500 transition" />
                 )}
               </button>
 
               <span
-                className={`text-xs font-medium truncate ${
+                className={`text-xs truncate ${
                   t.completed
-                    ? 'text-slate-800 dark:text-slate-100'
-                    : 'text-slate-800 dark:text-slate-200'
+                    ? 'text-zinc-400 line-through'
+                    : 'text-zinc-800 dark:text-zinc-200 font-medium'
                 }`}
               >
                 {t.title}
               </span>
             </div>
 
-            {/* Right: Due Date + User Avatar */}
-            <div className="flex items-center gap-3 shrink-0">
-              <span className="text-[11px] font-medium text-slate-400 dark:text-slate-500">
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-[10px] font-mono text-zinc-400">
                 {t.due}
               </span>
-              <img
-                src={t.assignee_avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=64&h=64&fit=crop&crop=faces'}
-                alt={t.assignee_name}
-                className="w-6 h-6 rounded-full object-cover border border-slate-200 dark:border-slate-700 shadow-2xs"
-                title={t.assignee_name}
-              />
+              <div className="w-5 h-5 rounded-full bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 flex items-center justify-center text-[10px] font-bold text-zinc-600 dark:text-zinc-300">
+                {t.assignee_name?.charAt(0) || 'U'}
+              </div>
             </div>
           </div>
         ))}
@@ -126,44 +117,44 @@ export const UpcomingTasksCard: React.FC<Props> = ({ tasks = [], onTaskToggled }
 
       {/* Add Task Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 backdrop-blur-xs p-4">
-          <div className="w-full max-w-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-2xl space-y-4">
-            <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">Create Follow-up Task</h4>
-            <form onSubmit={handleCreateTask} className="space-y-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/40 backdrop-blur-xs p-4">
+          <div className="w-full max-w-sm bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 shadow-xl space-y-3">
+            <h4 className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 uppercase tracking-wider">New Action Item</h4>
+            <form onSubmit={handleCreateTask} className="space-y-2.5">
               <div>
-                <label className="text-xs font-medium text-slate-500">Task Title</label>
+                <label className="text-[11px] font-medium text-zinc-500">Title</label>
                 <input
                   type="text"
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
-                  placeholder="e.g. Confirm quote with Acme Corp"
-                  className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:border-blue-500"
+                  placeholder="e.g. Follow-up order status query"
+                  className="w-full mt-1 px-2.5 py-1.5 rounded-lg bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-zinc-400"
                   autoFocus
                 />
               </div>
               <div>
-                <label className="text-xs font-medium text-slate-500">Due Timeline</label>
+                <label className="text-[11px] font-medium text-zinc-500">Timeline</label>
                 <input
                   type="text"
                   value={newDue}
                   onChange={(e) => setNewDue(e.target.value)}
-                  placeholder="e.g. Due in 3h or Due tomorrow"
-                  className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:border-blue-500"
+                  placeholder="e.g. Due tomorrow"
+                  className="w-full mt-1 px-2.5 py-1.5 rounded-lg bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-zinc-400"
                 />
               </div>
-              <div className="flex gap-2 pt-2">
+              <div className="flex gap-2 pt-1">
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  className="w-1/2 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+                  className="w-1/2 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 text-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="w-1/2 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-xs font-semibold text-white shadow-md shadow-blue-500/20"
+                  className="w-1/2 py-1.5 rounded-lg bg-zinc-900 dark:bg-zinc-100 hover:bg-zinc-800 dark:hover:bg-zinc-200 text-xs font-medium text-zinc-50 dark:text-zinc-900"
                 >
-                  Add Task
+                  Create
                 </button>
               </div>
             </form>
