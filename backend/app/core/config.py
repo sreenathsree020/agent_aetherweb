@@ -14,7 +14,18 @@ class Settings:
     ENCRYPTION_MASTER_KEY: str = os.getenv("ENCRYPTION_MASTER_KEY", "uYw7Zc2M5bQ3vX8nK1rL9pT0eW4yA6dF8gH2jK4mN7s=")
 
     # Database & Cache
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./voice_agent.db")
+    @staticmethod
+    def _parse_db_url() -> str:
+        raw = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./voice_agent.db")
+        if raw.startswith("postgres://"):
+            raw = raw.replace("postgres://", "postgresql+asyncpg://", 1)
+        elif raw.startswith("postgresql://") and not raw.startswith("postgresql+asyncpg://"):
+            raw = raw.replace("postgresql://", "postgresql+asyncpg://", 1)
+        if "sslmode=require" in raw:
+            raw = raw.replace("sslmode=require", "ssl=require")
+        return raw
+
+    DATABASE_URL: str = _parse_db_url()
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379")
     SESSION_TIMEOUT: int = int(os.getenv("SESSION_TIMEOUT", 3600))
 
