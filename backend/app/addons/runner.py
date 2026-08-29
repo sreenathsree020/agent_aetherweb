@@ -8,13 +8,19 @@ from app.addons.base import AbstractAddon
 from app.addons.database.addon import DatabaseAddon
 from app.addons.gmail.addon import GmailAddon
 from app.addons.whatsapp.addon import WhatsAppAddon
+from app.addons.crm.addon import CRMAddon
+from app.addons.ticketing.addon import TicketingAddon
+from app.addons.calendar.addon import CalendarAddon
 
 logger = logging.getLogger(__name__)
 
 ADDON_CLASS_MAP = {
     "database": DatabaseAddon,
     "gmail": GmailAddon,
-    "whatsapp": WhatsAppAddon
+    "whatsapp": WhatsAppAddon,
+    "crm": CRMAddon,
+    "ticketing": TicketingAddon,
+    "calendar": CalendarAddon,
 }
 
 
@@ -22,9 +28,7 @@ class AddonRunner:
     """Manages active tenant addons, formats OpenAI tool schemas, and executes tools."""
 
     def __init__(self):
-        # Cache of initialized addons per tenant: {tenant_id: [AbstractAddon, ...]}
         self._tenant_addons_cache: Dict[str, List[AbstractAddon]] = {}
-        # Tool name to addon instance mapping: {(tenant_id, tool_name): AbstractAddon}
         self._tool_dispatch_map: Dict[tuple, AbstractAddon] = {}
 
     async def load_tenant_addons(self, tenant_id: str = "default", force_refresh: bool = False) -> List[AbstractAddon]:
@@ -55,11 +59,10 @@ class AddonRunner:
                         await addon_inst.initialize()
                         addons.append(addon_inst)
 
-                        # Register tool dispatch
                         for tool in addon_inst.get_tool_definitions():
                             self._tool_dispatch_map[(tenant_id, tool.name)] = addon_inst
 
-            # If no DB addons configured yet, initialize default in-memory sandbox addons
+            # If no DB addons configured yet, initialize sandbox addons
             if not addons:
                 addons = self._create_default_sandbox_addons(tenant_id)
 
@@ -79,7 +82,10 @@ class AddonRunner:
                 "query_template": "SELECT id, caller, status FROM call_records WHERE caller = :caller_phone LIMIT 1"
             }),
             WhatsAppAddon(tenant_id, {}),
-            GmailAddon(tenant_id, {})
+            GmailAddon(tenant_id, {}),
+            CRMAddon(tenant_id, {}),
+            TicketingAddon(tenant_id, {}),
+            CalendarAddon(tenant_id, {}),
         ]
         for a in addons:
             for tool in a.get_tool_definitions():
@@ -112,7 +118,6 @@ class AddonRunner:
         """Dispatch tool call to appropriate addon."""
         addon = self._tool_dispatch_map.get((tenant_id, tool_name))
         if not addon:
-            # Refresh if newly added
             await self.load_tenant_addons(tenant_id, force_refresh=True)
             addon = self._tool_dispatch_map.get((tenant_id, tool_name))
 
@@ -130,7 +135,6 @@ class AddonRunner:
 
     def invalidate_tenant(self, tenant_id: str):
         self._tenant_addons_cache.pop(tenant_id, None)
-        # Clear tool mappings for tenant
         keys_to_del = [k for k in self._tool_dispatch_map if k[0] == tenant_id]
         for k in keys_to_del:
             self._tool_dispatch_map.pop(k, None)

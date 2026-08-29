@@ -21,6 +21,11 @@ from app.api.v1.addons import router as addons_router
 from app.api.v1.workflows import router as workflows_router
 from app.api.v1.calls import router as calls_router
 from app.api.v1.oauth import router as oauth_router
+from app.api.v1.analytics import router as analytics_router
+from app.api.v1.rag import router as rag_router
+from app.api.v1.campaigns import router as campaigns_router
+from app.api.v1.monitor import router as monitor_router
+from app.api.v1.billing import router as billing_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -67,6 +72,11 @@ app.include_router(addons_router, prefix="/api/v1")
 app.include_router(workflows_router, prefix="/api/v1")
 app.include_router(calls_router, prefix="/api/v1")
 app.include_router(oauth_router, prefix="/api/v1")
+app.include_router(analytics_router, prefix="/api/v1")
+app.include_router(rag_router, prefix="/api/v1")
+app.include_router(campaigns_router, prefix="/api/v1")
+app.include_router(monitor_router, prefix="/api/v1")
+app.include_router(billing_router, prefix="/api/v1")
 
 # Mount static files if present
 static_dir = "static" if os.path.exists("static") else ("backend/static" if os.path.exists("backend/static") else None)

@@ -5,6 +5,9 @@ import { Sidebar } from './components/layout/Sidebar';
 import { Dashboard } from './pages/Dashboard';
 import { WorkflowBuilder } from './pages/WorkflowBuilder';
 import { CallHistory } from './pages/CallHistory';
+import { Analytics } from './pages/Analytics';
+import { LiveMonitoring } from './pages/LiveMonitoring';
+import { KnowledgeBase } from './pages/KnowledgeBase';
 import { GmailIntegration } from './pages/GmailIntegration';
 import { WhatsAppIntegration } from './pages/WhatsAppIntegration';
 import { DatabaseIntegration } from './pages/DatabaseIntegration';
@@ -18,7 +21,6 @@ export const App: React.FC = () => {
   const [authOpen, setAuthOpen] = useState(false);
   const { theme } = useThemeStore();
 
-  // Apply theme class to <html>
   useEffect(() => {
     if (theme === 'dark') {
       document.documentElement.classList.add('dark');
@@ -42,6 +44,9 @@ export const App: React.FC = () => {
               <Route path="/" element={<Dashboard />} />
               <Route path="/builder" element={<WorkflowBuilder />} />
               <Route path="/calls" element={<CallHistory />} />
+              <Route path="/analytics" element={<Analytics />} />
+              <Route path="/monitor" element={<LiveMonitoring />} />
+              <Route path="/knowledge" element={<KnowledgeBase />} />
               <Route path="/addons/database" element={<DatabaseIntegration />} />
               <Route path="/addons/whatsapp" element={<WhatsAppIntegration />} />
               <Route path="/addons/gmail" element={<GmailIntegration />} />
@@ -50,13 +55,8 @@ export const App: React.FC = () => {
           </main>
         </div>
 
-        {/* Global LLM Setup Modal Popup */}
         <LLMSetupModal />
-
-        {/* Global Telephony (Exotel / Twilio) Setup Modal Popup */}
         <TelephonySetupModal />
-
-        {/* Global Auth Modal */}
         <AuthModal isOpen={authOpen} onClose={() => setAuthOpen(false)} />
       </div>
     </Router>

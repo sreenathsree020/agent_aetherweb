@@ -69,6 +69,36 @@ export const addonService = {
     return res.data;
   },
 
+  getAnalyticsSummary: async () => {
+    const res = await api.get('/analytics/summary');
+    return res.data;
+  },
+
+  indexKnowledge: async (documentName: string, content: string) => {
+    const res = await api.post('/knowledge/index', { document_name: documentName, content });
+    return res.data;
+  },
+
+  searchKnowledge: async (query: string, topK: number = 3) => {
+    const res = await api.post('/knowledge/search', { query, top_k: topK });
+    return res.data;
+  },
+
+  getCampaigns: async () => {
+    const res = await api.get('/campaigns');
+    return res.data;
+  },
+
+  createCampaign: async (payload: any) => {
+    const res = await api.post('/campaigns', payload);
+    return res.data;
+  },
+
+  getBillingStatus: async () => {
+    const res = await api.get('/billing/status');
+    return res.data;
+  },
+
   toggleTask: async (taskId: string) => {
     const res = await api.post('/calls/task/toggle', { task_id: taskId });
     return res.data;
