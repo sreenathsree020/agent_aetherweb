@@ -39,18 +39,19 @@ class VoiceAgent:
             f"(Deepgram={self.has_deepgram}, Azure={self.has_azure})"
         )
 
-        # OpenRouter / OpenAI client initialization
+        # OpenRouter / OpenAI / DeepSeek client initialization
+        api_key = settings.OPENROUTER_API_KEY or os.getenv("OPENAI_API_KEY", "") or os.getenv("DEEPSEEK_API_KEY", "")
         self.llm_client = None
-        if settings.OPENROUTER_API_KEY and not settings.OPENROUTER_API_KEY.startswith("your_"):
+        if api_key and not api_key.startswith("your_"):
             self.llm_client = AsyncOpenAI(
                 base_url=settings.OPENROUTER_BASE_URL,
-                api_key=settings.OPENROUTER_API_KEY,
+                api_key=api_key,
                 default_headers={
                     "HTTP-Referer": f"http://{settings.HOST}:{settings.PORT}",
                     "X-Title": "VoiceAgent-Exotel"
                 }
             )
-            logger.info(f"OpenRouter initialized with model: {settings.OPENROUTER_MODEL} at {settings.OPENROUTER_BASE_URL}")
+            logger.info(f"LLM initialized with model: {settings.OPENROUTER_MODEL} at {settings.OPENROUTER_BASE_URL}")
 
         # Azure Speech configurations
         self.speech_config_mulaw = None
@@ -301,7 +302,15 @@ class VoiceAgent:
     ) -> str:
         """Generate AI response with multi-turn conversation and dynamic addon tool calling."""
         if not self.llm_client:
-            return "Thank you for calling. Our automated assistant is currently unavailable."
+            api_key = settings.OPENROUTER_API_KEY or os.getenv("OPENAI_API_KEY", "") or os.getenv("DEEPSEEK_API_KEY", "")
+            if api_key and not api_key.startswith("your_"):
+                self.llm_client = AsyncOpenAI(
+                    base_url=settings.OPENROUTER_BASE_URL,
+                    api_key=api_key,
+                    default_headers={"HTTP-Referer": f"http://{settings.HOST}:{settings.PORT}", "X-Title": "VoiceAgent-Exotel"}
+                )
+            else:
+                return "Thank you for calling. Our customer support intelligence engine is currently connecting. Please leave your phone number or call back shortly."
 
         t0 = time.time()
         context = call_context or {}
