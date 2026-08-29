@@ -21,8 +21,11 @@ class Settings:
             raw = raw.replace("postgres://", "postgresql+asyncpg://", 1)
         elif raw.startswith("postgresql://") and not raw.startswith("postgresql+asyncpg://"):
             raw = raw.replace("postgresql://", "postgresql+asyncpg://", 1)
-        if "sslmode=require" in raw:
-            raw = raw.replace("sslmode=require", "ssl=require")
+        # Clean SSL params from URL since SSL context is passed directly via connect_args
+        if "?" in raw:
+            base_part, query_part = raw.split("?", 1)
+            params = [p for p in query_part.split("&") if not p.startswith("sslmode") and not p.startswith("ssl=")]
+            raw = f"{base_part}?{'&'.join(params)}" if params else base_part
         return raw
 
     DATABASE_URL: str = _parse_db_url()

@@ -19,7 +19,8 @@ class SessionManager:
             self.redis_client = redis.from_url(
                 self.redis_url,
                 decode_responses=True,
-                socket_connect_timeout=2.0
+                socket_connect_timeout=2.0,
+                socket_timeout=2.0
             )
         except Exception as e:
             logger.warning(f"Redis initialization failed: {e}. In-memory fallback will be used.")

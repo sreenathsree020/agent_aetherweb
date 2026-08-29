@@ -1,3 +1,4 @@
+import ssl
 from typing import AsyncGenerator
 import logging
 from sqlalchemy import text
@@ -10,14 +11,29 @@ logger = logging.getLogger(__name__)
 Base = declarative_base()
 
 connect_args = {}
+engine_kwargs = {
+    "echo": False,
+    "future": True,
+}
+
 if settings.DATABASE_URL.startswith("sqlite"):
     connect_args = {"check_same_thread": False}
+elif "postgresql" in settings.DATABASE_URL:
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    connect_args = {"ssl": ctx}
+    engine_kwargs.update({
+        "pool_size": 5,
+        "max_overflow": 10,
+        "pool_pre_ping": True,
+        "pool_recycle": 300,
+    })
 
 engine = create_async_engine(
     settings.DATABASE_URL,
-    echo=False,
     connect_args=connect_args,
-    future=True
+    **engine_kwargs
 )
 
 AsyncSessionLocal = async_sessionmaker(

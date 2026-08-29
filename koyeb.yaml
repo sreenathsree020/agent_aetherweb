@@ -1,0 +1,27 @@
+# Koyeb Service Configuration for AI Voice Agent
+name: voice-agent-backend
+type: web
+docker:
+  dockerfile: Dockerfile
+routes:
+  - path: /
+    port: 8000
+ports:
+  - port: 8000
+    protocol: http
+health_checks:
+  - http:
+      path: /health
+      port: 8000
+    interval: 30
+    timeout: 5
+    healthy_threshold: 2
+    unhealthy_threshold: 3
+    initial_delay: 15
+scalings:
+  - min: 1
+    max: 1
+regions:
+  - fra
+instance_types:
+  - nano

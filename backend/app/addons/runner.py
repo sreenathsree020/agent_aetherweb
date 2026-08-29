@@ -5,6 +5,7 @@ from app.core.database import AsyncSessionLocal
 from app.models.addon import AddonConfig
 from app.core.security import decrypt_credential
 from app.addons.base import AbstractAddon
+from app.addons.store_tools import StoreToolsAddon
 from app.addons.database.addon import DatabaseAddon
 from app.addons.gmail.addon import GmailAddon
 from app.addons.whatsapp.addon import WhatsAppAddon
@@ -15,6 +16,7 @@ from app.addons.calendar.addon import CalendarAddon
 logger = logging.getLogger(__name__)
 
 ADDON_CLASS_MAP = {
+    "store_tools": StoreToolsAddon,
     "database": DatabaseAddon,
     "gmail": GmailAddon,
     "whatsapp": WhatsAppAddon,
@@ -40,6 +42,14 @@ class AddonRunner:
 
         addons: List[AbstractAddon] = []
         try:
+            # 1. Always attach first-class StoreToolsAddon for real store data lookups
+            store_tools = StoreToolsAddon(tenant_id=tenant_id)
+            await store_tools.initialize()
+            addons.append(store_tools)
+            for tool in store_tools.get_tool_definitions():
+                self._tool_dispatch_map[(tenant_id, tool.name)] = store_tools
+
+            # 2. Query configured dynamic addons from database
             async with AsyncSessionLocal() as session:
                 result = await session.execute(
                     select(AddonConfig).where(
@@ -62,42 +72,29 @@ class AddonRunner:
                         for tool in addon_inst.get_tool_definitions():
                             self._tool_dispatch_map[(tenant_id, tool.name)] = addon_inst
 
-            # If no DB addons configured yet, initialize sandbox addons
-            if not addons:
-                addons = self._create_default_sandbox_addons(tenant_id)
-
             self._tenant_addons_cache[tenant_id] = addons
         except Exception as e:
             logger.error(f"[AddonRunner] Failed loading addons for tenant {tenant_id}: {e}")
-            addons = self._create_default_sandbox_addons(tenant_id)
+            # Fallback to store tools
+            fallback = StoreToolsAddon(tenant_id=tenant_id)
+            await fallback.initialize()
+            for tool in fallback.get_tool_definitions():
+                self._tool_dispatch_map[(tenant_id, tool.name)] = fallback
+            addons = [fallback]
             self._tenant_addons_cache[tenant_id] = addons
 
-        return addons
-
-    def _create_default_sandbox_addons(self, tenant_id: str) -> List[AbstractAddon]:
-        addons = [
-            DatabaseAddon(tenant_id, {
-                "engine": "sqlite",
-                "database": "voice_agent.db",
-                "query_template": "SELECT id, caller, status FROM call_records WHERE caller = :caller_phone LIMIT 1"
-            }),
-            WhatsAppAddon(tenant_id, {}),
-            GmailAddon(tenant_id, {}),
-            CRMAddon(tenant_id, {}),
-            TicketingAddon(tenant_id, {}),
-            CalendarAddon(tenant_id, {}),
-        ]
-        for a in addons:
-            for tool in a.get_tool_definitions():
-                self._tool_dispatch_map[(tenant_id, tool.name)] = a
         return addons
 
     async def get_openai_tools_for_tenant(self, tenant_id: str = "default") -> List[Dict[str, Any]]:
         """Return array of tools in standard OpenAI format."""
         addons = await self.load_tenant_addons(tenant_id)
         tools = []
+        seen_names = set()
         for addon in addons:
             for defn in addon.get_tool_definitions():
+                if defn.name in seen_names:
+                    continue
+                seen_names.add(defn.name)
                 tools.append({
                     "type": "function",
                     "function": {

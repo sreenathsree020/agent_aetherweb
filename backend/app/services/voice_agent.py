@@ -309,7 +309,20 @@ class VoiceAgent:
         # 1. Fetch active addon tools for tenant
         tools = await self.addon_runner.get_openai_tools_for_tenant(tenant_id)
 
-        messages: List[Dict[str, Any]] = [{"role": "system", "content": self.system_prompt}]
+        store_name = context.get("store_name") or context.get("name") or "our Store"
+        currency = context.get("currency") or "INR (₹)"
+        caller_phone = context.get("caller_phone") or context.get("caller") or ""
+
+        sys_prompt = (
+            f"You are the official AI Customer Support voice assistant for {store_name}.\n"
+            f"You speak politely, warmly, and concisely over telephone audio (1-2 sentences per response).\n"
+            f"Active caller phone number: {caller_phone or 'Not detected'}.\n"
+            f"Store currency: {currency}.\n"
+            f"Always use the provided tools (get_order_status, get_order_details, get_payment_status, get_shipping_status, get_store_information, send_whatsapp_message, search_knowledge_base) to look up real facts.\n"
+            f"Never hallucinate or guess fake order numbers or tracking details. If an order is not found, politely ask the caller for their order ID or phone number."
+        )
+
+        messages: List[Dict[str, Any]] = [{"role": "system", "content": sys_prompt}]
 
         if conversation_history:
             for turn in conversation_history[-6:]:

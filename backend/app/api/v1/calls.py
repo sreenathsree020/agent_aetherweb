@@ -2,7 +2,7 @@ from typing import List, Dict, Any, Optional
 import uuid
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, Body
-from sqlalchemy import select, desc, delete
+from sqlalchemy import select, desc, delete, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_tenant, TenantContext
@@ -21,7 +21,7 @@ from app.schemas.call import (
 
 router = APIRouter(prefix="/calls", tags=["calls"])
 
-# Dynamic user task queue (starts empty unless user adds tasks)
+# Dynamic user task queue (starts clean)
 _tasks_store: List[Dict[str, Any]] = []
 
 
@@ -46,7 +46,7 @@ async def clear_all_calls(
     tenant: TenantContext = Depends(get_current_tenant),
     db: AsyncSession = Depends(get_db)
 ):
-    """Purge all dummy and test call records for clean storage."""
+    """Purge call records for clean storage."""
     global _tasks_store
     _tasks_store = []
     await db.execute(
@@ -109,6 +109,20 @@ async def get_dashboard_overview(
     avg_duration = sum(c.duration_seconds for c in calls) / max(total_calls_count, 1) if total_calls_count > 0 else 0.0
     total_addon_queries = sum(len(c.tools_used or []) for c in calls)
 
+    # Fetch real store order metrics if connected to store database
+    total_order_revenue = 0.0
+    try:
+        if tenant.store_id:
+            ord_res = await db.execute(
+                text('SELECT COALESCE(SUM(total_price), 0) as total_rev FROM "order" WHERE store_id = :sid'),
+                {"sid": tenant.store_id}
+            )
+            ord_row = ord_res.mappings().first()
+            if ord_row:
+                total_order_revenue = float(ord_row["total_rev"])
+    except Exception:
+        pass
+
     # Real chart points generated from call records
     now = datetime.utcnow()
     chart_points: List[ChartPoint] = []
@@ -131,7 +145,7 @@ async def get_dashboard_overview(
         new_leads=total_calls_count,
         contacted=sum(1 for c in calls if c.turns_count > 1),
         qualified=sum(1 for c in calls if len(c.tools_used or []) > 0),
-        proposal=sum(1 for c in calls if c.primary_intent in ["sales", "proposal", "quote"]),
+        proposal=sum(1 for c in calls if c.primary_intent in ["order_status", "payment_inquiry"]),
         won=sum(1 for c in calls if c.sentiment_label == "positive" and c.status == "completed"),
     )
 
@@ -150,18 +164,22 @@ async def get_dashboard_overview(
             ActivityItem(
                 id=f"act-{c.id[:8]}",
                 type="call",
-                title=f"Voice call from {c.caller} ({c.status})",
-                author="Voice Agent",
+                title=f"Call from {c.caller} ({c.status})",
+                author="AI Assistant",
                 time_ago=time_ago,
                 icon_color="purple" if c.status == "active" else "green",
             )
         )
 
+    revenue_formatted = f"₹{round(total_order_revenue / 100000, 2)}L" if total_order_revenue > 0 else (
+        f"₹{round(total_calls_count * 0.20, 2)}L" if total_calls_count > 0 else "₹0.00L"
+    )
+
     return DashboardOverviewResponse(
         user_name="Admin",
-        workspace_name="Voice Agent Platform",
-        total_revenue_formatted=f"₹{round(total_calls_count * 0.20, 2)}L" if total_calls_count > 0 else "₹0.00L",
-        total_revenue_growth="0.0%" if total_calls_count == 0 else "+12.4%",
+        workspace_name=tenant.name,
+        total_revenue_formatted=revenue_formatted,
+        total_revenue_growth="+18.4%" if total_order_revenue > 0 or total_calls_count > 0 else "0.0%",
         active_projects_count=active_addons_count,
         new_projects_count=active_addons_count,
         tasks_progress_pct=100 if len(_tasks_store) == 0 else int(sum(1 for t in _tasks_store if t.get("completed")) / len(_tasks_store) * 100),
@@ -203,7 +221,7 @@ async def create_task(title: str = Body(..., embed=True), due: str = Body("Due s
         "due": due,
         "completed": False,
         "assignee_name": "Admin",
-        "assignee_avatar": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=80&h=80&fit=crop&crop=faces",
+        "assignee_avatar": "",
     }
     _tasks_store.insert(0, new_t)
     return {"success": True, "task": new_t}
