@@ -30,11 +30,20 @@ elif "postgresql" in settings.DATABASE_URL:
         "pool_recycle": 300,
     })
 
-engine = create_async_engine(
-    settings.DATABASE_URL,
-    connect_args=connect_args,
-    **engine_kwargs
-)
+try:
+    engine = create_async_engine(
+        settings.DATABASE_URL,
+        connect_args=connect_args,
+        **engine_kwargs
+    )
+except Exception as e:
+    logger.error(f"⚠️ Failed to initialize database engine for URL '{settings.DATABASE_URL}': {e}. Falling back to SQLite.")
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///./voice_agent.db",
+        connect_args={"check_same_thread": False},
+        echo=False,
+        future=True
+    )
 
 AsyncSessionLocal = async_sessionmaker(
     bind=engine,

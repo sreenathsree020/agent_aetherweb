@@ -16,11 +16,22 @@ class Settings:
     # Database & Cache
     @staticmethod
     def _parse_db_url() -> str:
-        raw = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./voice_agent.db")
+        raw = os.getenv("DATABASE_URL", "").strip()
+        # Strip leading/trailing quotes if added in Koyeb env settings
+        if (raw.startswith('"') and raw.endswith('"')) or (raw.startswith("'") and raw.endswith("'")):
+            raw = raw[1:-1].strip()
+        # Strip accidental repeated key names e.g. "DATABASE_URL=postgres://..."
+        while raw.lower().startswith("database_url="):
+            raw = raw[13:].strip()
+
+        if not raw:
+            return "sqlite+aiosqlite:///./voice_agent.db"
+
         if raw.startswith("postgres://"):
             raw = raw.replace("postgres://", "postgresql+asyncpg://", 1)
         elif raw.startswith("postgresql://") and not raw.startswith("postgresql+asyncpg://"):
             raw = raw.replace("postgresql://", "postgresql+asyncpg://", 1)
+
         # Clean SSL params from URL since SSL context is passed directly via connect_args
         if "?" in raw:
             base_part, query_part = raw.split("?", 1)
