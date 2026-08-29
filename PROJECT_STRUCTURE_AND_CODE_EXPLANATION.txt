@@ -1,0 +1,493 @@
+================================================================================
+AI VOICE AGENT (EXOTEL + DEEPGRAM / AZURE + OPENROUTER + REDIS)
+FULL PROJECT STRUCTURE & COMPLETE CODEBASE EXPLANATION
+================================================================================
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+1. PROJECT OVERVIEW
+2. COMPLETE DIRECTORY TREE
+3. ARCHITECTURAL DATA FLOW & PROTOCOLS
+4. DETAILED FILE-BY-FILE CODE EXPLANATION
+   4.1.  config.py (Configuration & Environment Resolution)
+   4.2.  session_manager.py (Session State & Redis Management)
+   4.3.  voice_agent.py (STT, TTS, & LLM Engine)
+   4.4.  exotel_handler.py (Telephony Logic, WebSockets, VAD & Barge-In)
+   4.5.  main.py (FastAPI Application, Routes, WebSockets & Server Lifecycle)
+   4.6.  static/index.html (Web Test Console & Client Audio Engine)
+   4.7.  test_e2e.py (Comprehensive End-to-End Test Suite)
+   4.8.  Dockerfile & koyeb.yaml (Containerization & Cloud Deployment)
+   4.9.  requirements.txt & Environment Files (.env, .env.example)
+5. AUDIO CODECS & TELEPHONY STREAMING SPECIFICATION
+6. DEPLOYMENT & EXECUTION GUIDE
+
+================================================================================
+1. PROJECT OVERVIEW
+================================================================================
+This project is an enterprise-grade, real-time AI Voice Support Agent tailored 
+specifically for telephony integration with Exotel, as well as interactive 
+browser-based testing. 
+
+Key Capabilities:
+- Bi-directional Real-Time Voice Streaming: Ultra-low latency voice exchange 
+  using WebSockets, 8kHz 8-bit mono μ-law (PCMU) audio, and 8kHz 16-bit linear PCM.
+- Dual Exotel Modes:
+  1. Passthru / Gather Mode (HTTP Webhooks returning ExoML XML instructions).
+  2. Media Stream Mode (Bi-directional WebSocket streaming).
+- Speech-To-Text (STT): Primary Deepgram Nova-2 REST API with automatic failover 
+  to Azure Cognitive Services Speech REST API.
+- Large Language Model (LLM): OpenRouter / OpenAI API integration supporting 
+  reasoning model stripping (<think> tags removal) and multi-turn context retention.
+- Text-To-Speech (TTS): Primary Deepgram Aura TTS with fallback to Azure Speech SDK, 
+  synthesizing directly into telephony-ready μ-law or PCM audio.
+- Voice Activity Detection (VAD) & Barge-In: Real-time RMS energy measurement 
+  allowing callers to interrupt ("barge-in") the AI while it is speaking.
+- Dual-Layer Session Management: Redis-backed distributed sessions with an in-memory 
+  fallback dictionary to ensure zero downtime if Redis is disconnected.
+
+================================================================================
+2. COMPLETE DIRECTORY TREE
+================================================================================
+c:\voice_agent\
+│
+├── config.py
+│   Configuration loader using python-dotenv. Validates API keys and sets
+│   default parameters for models, audio codecs, ports, and system prompts.
+│
+├── session_manager.py
+│   Session state manager using Redis with automatic local memory fallback.
+│   Tracks conversation history, active call state, and timestamps.
+│
+├── voice_agent.py
+│   Core AI engine encapsulating STT (Deepgram/Azure), TTS (Deepgram Aura/Azure),
+│   and LLM chat completion (OpenRouter/OpenAI) with multi-turn message history.
+│
+├── exotel_handler.py
+│   Exotel telephony integration logic. Handles ExoML generation (Gather/Say),
+│   WebSocket bi-directional audio streaming, VAD, caller barge-in, and packet pacing.
+│
+├── main.py
+│   FastAPI application entry point. Implements REST endpoints (/health, /api/exotel/*,
+│   /api/session/*), WebSockets (/ws/exotel-stream, /ws/browser), and static hosting.
+│
+├── static/
+│   └── index.html
+│       Full-featured web test console for real-time microphone voice interaction,
+│       audio playback, live transcript visualizer, DTMF testing, and latency logs.
+│
+├── test_e2e.py
+│   Automated end-to-end test suite testing 12 critical telephony and web scenarios:
+│   health checks, ExoML response validity, WebSocket handshakes, audio streaming,
+│   VAD detection, barge-in interruptions, and session termination.
+│
+├── Dockerfile
+│   Production-ready container definition based on python:3.11-slim with required
+│   system audio libraries (libasound2, libssl3) and non-root security user.
+│
+├── koyeb.yaml
+│   Deployment manifest for Koyeb Serverless Cloud platform specifying ports,
+│   health checks, regions, and environment variable bindings.
+│
+├── requirements.txt
+│   Python package dependency manifest (FastAPI, Uvicorn, WebSockets, Azure Speech,
+│   OpenAI, HTTPX, Redis, Pydantic, NumPy, Python-Multipart).
+│
+├── .env / .env.example
+│   Environment variable configuration templates for API keys, tokens, and endpoints.
+│
+└── .dockerignore / .gitignore
+    Rules to exclude virtual environments, cache, sensitive files, and local logs.
+
+================================================================================
+3. ARCHITECTURAL DATA FLOW & PROTOCOLS
+================================================================================
+
+A. EXOTEL WEBSOCKET MEDIA STREAM FLOW (Real-Time Voice)
+-------------------------------------------------------
+1. Incoming Call:
+   Caller dials Exotel virtual phone number. Exotel makes an HTTP GET/POST 
+   request to /api/exotel/incoming.
+2. ExoML Stream Instruction:
+   Server returns an XML response:
+   <Response>
+       <Stream url="wss://<HOST>/ws/exotel-stream?callSid=<SID>" />
+   </Response>
+3. WebSocket Handshake:
+   Exotel opens a bi-directional WebSocket connection to /ws/exotel-stream.
+4. Connection & Greeting:
+   - Exotel sends "connected" and "start" JSON events.
+   - Server initializes call session and synthesizes an initial greeting.
+   - Server divides greeting audio into 40ms chunks (320 bytes for 8kHz μ-law) 
+     and transmits base64-encoded chunks over WebSocket.
+5. Inbound Audio & VAD:
+   - Exotel continuously streams caller audio chunks ("media" event, base64 μ-law).
+   - Server calculates RMS energy on each chunk.
+   - If energy exceeds ENERGY_THRESHOLD (250 RMS), speech accumulation starts.
+   - If caller speaks while AI is talking, energy exceeding BARGE_IN_THRESHOLD (800 RMS)
+     immediately cancels AI playback ("Barge-in").
+6. Speech-to-Text (STT):
+   - When silence frames reach SILENCE_THRESHOLD (approx. 500ms of silence),
+     the accumulated audio buffer is sent to Deepgram Nova-2 (or Azure STT fallback).
+7. LLM Reasoning:
+   - Recognized transcript is formatted with conversation history and passed to
+     OpenRouter (e.g. openrouter/free, mistral, or gpt models).
+   - Server cleans out any internal reasoning tags (<think>...</think>).
+8. Text-to-Speech (TTS):
+   - AI response text is synthesized via Deepgram Aura (or Azure TTS fallback)
+     directly into 8kHz 8-bit mono μ-law (or 8kHz 16-bit linear PCM).
+9. Playback:
+   - Chunks are paced at ~38-40ms intervals and sent back to Exotel.
+   - Cycle repeats until caller hangs up ("stop" event or /api/exotel/status webhook).
+
+B. EXOTEL HTTP GATHER / PASSTHRU FLOW
+-------------------------------------
+1. Exotel calls /api/exotel/incoming.
+2. Server responds with ExoML containing <Say>greeting</Say> and <Gather> tag.
+3. Exotel plays the greeting, transcribes caller speech, and sends the transcript 
+   to /api/exotel/gather-response.
+4. Server generates LLM response and returns a new ExoML with the next <Say> and <Gather>.
+
+================================================================================
+4. DETAILED FILE-BY-FILE CODE EXPLANATION
+================================================================================
+
+--------------------------------------------------------------------------------
+4.1. config.py (Configuration & Environment Resolution)
+--------------------------------------------------------------------------------
+Purpose:
+Centralizes all configuration variables, environment defaults, provider 
+selection logic, and runtime sanity checks.
+
+Key Classes & Attributes:
+- class Config:
+  * Speech Provider Selection:
+    - DEEPGRAM_API_KEY: Fetched from env variables DEEPGRAM_API_KEY / DEEPGRAM_KEY.
+    - DEEPGRAM_STT_MODEL: Default "nova-2".
+    - DEEPGRAM_STT_LANGUAGE: Default "en".
+    - DEEPGRAM_TTS_MODEL: Default "aura-asteria-en".
+    - STT_PROVIDER / TTS_PROVIDER: Resolves to "deepgram" if a valid key is 
+      found; otherwise falls back to "azure".
+  * Azure Speech:
+    - AZURE_SPEECH_KEY, AZURE_SPEECH_REGION (default: eastus).
+    - AZURE_SPEECH_ENDPOINT: Custom cognitive services endpoint if configured.
+    - AZURE_STT_LANGUAGE ("en-US"), AZURE_TTS_VOICE ("en-US-JennyNeural").
+  * LLM Configuration:
+    - OPENROUTER_API_KEY: Fallback to OPENAI_API_KEY if present.
+    - OPENROUTER_BASE_URL: Sanitizes custom endpoint URLs, stripping trailing 
+      `/chat/completions` paths.
+    - OPENROUTER_MODEL: Default "openrouter/free".
+    - MAX_TOKENS (150), TEMPERATURE (0.7).
+  * Storage:
+    - REDIS_URL: Default redis://localhost:6379.
+    - SESSION_TIMEOUT: Default 3600 seconds (1 hour).
+  * Exotel:
+    - EXOTEL_ACCOUNT_SID, EXOTEL_API_KEY, EXOTEL_API_TOKEN, EXOTEL_SUBDOMAIN.
+    - EXOTEL_PHONE_NUMBER: Virtual number assigned to agent.
+    - EXOTEL_USE_STREAM: Boolean toggling between WebSocket streaming (true) 
+      and HTTP Gather/Say XML (false).
+  * Server:
+    - HOST ("0.0.0.0"), PORT (8000), KOYEB_APP_URL.
+  * System Prompt:
+    - Strict instruction set commanding the LLM to provide concise 1-2 sentence 
+      phone-friendly responses without markdown formatting or internal thoughts.
+  * validate():
+    - Class method checking for missing API keys or placeholder strings 
+      (e.g., keys starting with "your_"), issuing informative warnings.
+
+--------------------------------------------------------------------------------
+4.2. session_manager.py (Session State & Redis Management)
+--------------------------------------------------------------------------------
+Purpose:
+Maintains stateful multi-turn conversation context across telephone calls and 
+web connections. Employs a resilient dual-layer architecture combining Redis with 
+an automatic in-memory dict fallback.
+
+Key Class & Methods:
+- class SessionManager:
+  * __init__():
+    Connects to Redis using redis.from_url() with a 2-second connection timeout.
+    If Redis is unreachable, sets redis_client = None and falls back seamlessly 
+    to self._memory_store.
+  * create_session(session_id, data):
+    Instantiates a session record containing session_id, created_at, last_activity, 
+    conversation list, status ("active"), and metadata.
+  * get_session(session_id):
+    Retrieves session JSON from Redis. If Redis fails or returns None, inspects 
+    in-memory storage.
+  * save(session_id, session):
+    Updates last_activity timestamp, writes to _memory_store, and writes to 
+    Redis with TTL set to SESSION_TIMEOUT.
+  * add_conversation_turn(session_id, customer_text, agent_response):
+    Appends a turn {timestamp, customer, agent} to the conversation history. 
+    Maintains a sliding window of the last 50 turns to preserve memory.
+  * end_session(session_id):
+    Marks status as "ended", records ended_at timestamp, removes from Redis, 
+    and purges from memory store.
+  * active_count():
+    Computes real-time count of active sessions for health checks.
+
+--------------------------------------------------------------------------------
+4.3. voice_agent.py (STT, TTS, & LLM Engine)
+--------------------------------------------------------------------------------
+Purpose:
+Orchestrates AI services: transcribes voice to text, submits conversational context 
+to the LLM, and synthesizes generated text back to telephony-compatible audio.
+
+Key Class & Methods:
+- class VoiceAgent:
+  * __init__():
+    Initializes HTTP client (httpx.AsyncClient) for high-performance REST calls.
+    Initializes AsyncOpenAI client configured for OpenRouter base URL.
+    Configures Azure SpeechSDK profiles for 3 audio formats:
+    1. Raw8Khz8BitMonoMULaw (telephony standard).
+    2. Raw8Khz16BitMonoPcm (telephony 128kbps stream).
+    3. Raw16Khz16BitMonoPcm (browser microphone standard).
+  * speech_to_text(audio_bytes, is_mulaw, sample_rate):
+    High-level STT dispatcher. Evaluates STT_PROVIDER ("deepgram" vs "azure").
+    If Deepgram returns no result or errors, automatically attempts Azure STT.
+  * _deepgram_stt(audio_bytes, is_mulaw, sample_rate):
+    Submits raw audio bytes to https://api.deepgram.com/v1/listen.
+    Configured with smart_format=true, punctuate=true, encoding="mulaw" or "linear16".
+    Extracts transcript from JSON payload.
+  * _azure_stt(audio_bytes, is_mulaw, sample_rate):
+    Converts audio to 16kHz linear PCM using _wav_16khz_pcm() (via Python audioop)
+    and posts to Azure Cognitive Services speech recognition REST endpoint.
+  * text_to_speech(text, format_type):
+    High-level TTS dispatcher. Handles formats: "mulaw", "pcm8", or "pcm".
+    Dispatches to Deepgram Aura or Azure TTS with automatic cross-fallback.
+  * _deepgram_tts(text, format_type):
+    Sends request to https://api.deepgram.com/v1/speak with container="none" to 
+    receive raw headerless audio ready for real-time streaming chunks.
+  * _azure_tts(text, format_type):
+    Uses azure.cognitiveservices.speech.SpeechSynthesizer executed inside 
+    asyncio.to_thread to avoid blocking the event loop.
+  * generate_response(user_input, session_id, conversation_history):
+    Builds system prompt + last 6 conversation turns + current user input.
+    Queries OpenRouter chat completion.
+    Uses regex (re.sub(r"<think>.*?</think>", "", reply)) to eliminate internal 
+    reasoning outputs from modern reasoning models before synthesis.
+  * generate_greeting():
+    Provides standard immediate welcome message for incoming calls.
+
+--------------------------------------------------------------------------------
+4.4. exotel_handler.py (Telephony Logic, WebSockets, VAD & Barge-In)
+--------------------------------------------------------------------------------
+Purpose:
+Bridge between Exotel telephony protocols and the VoiceAgent pipeline. 
+Implements both ExoML XML responses and real-time WebSocket media stream handling.
+
+Key Class & Methods:
+- class ExotelHandler:
+  * incoming_call_gather(call_sid):
+    Generates ExoML for Passthru/Gather mode:
+    <Response>
+      <Say>Greeting</Say>
+      <Gather action=".../gather-response" input="speech" timeout="5" />
+      <Redirect>.../incoming</Redirect>
+    </Response>
+  * gather_response(call_sid, speech_result):
+    Processes transcribed speech from Exotel Gather webhook, calls LLM, updates 
+    session history, and returns the next ExoML <Say> / <Gather> pair.
+  * incoming_call_stream(call_sid):
+    Generates ExoML instructing Exotel to open a WebSocket stream:
+    <Response>
+      <Stream url="wss://<HOST>/ws/exotel-stream?callSid=<SID>" />
+    </Response>
+  * send_audio_chunks(websocket, stream_sid, audio_bytes, audio_format):
+    Divides synthesized audio into 320-byte (40ms at 8kHz μ-law) or 640-byte 
+    (40ms at 8kHz PCM) frames. Encodes each frame in base64 and transmits Exotel 
+    "media" events paced with asyncio.sleep(0.038).
+  * process_media_stream(websocket, call_sid):
+    Core event loop for Exotel WebSocket sessions:
+    - Parses inbound JSON events: "connected", "start", "media", "dtmf", "stop".
+    - Automatically plays greeting once stream_sid is received.
+    - Decodes base64 payload into raw PCM using audioop.ulaw2lin.
+    - Calculates RMS energy via _audio_energy().
+    - Voice Activity Detection (VAD): Tracks silence vs speech. When speech ends 
+      (approx. 500ms silence after speech), triggers _handle_user_utterance.
+    - Barge-In Interruption: If the AI is speaking (is_speaking=True) and caller 
+      RMS energy exceeds BARGE_IN_THRESHOLD (800 RMS), the ongoing playback task 
+      is immediately canceled, silencing the AI and switching to listening mode.
+  * _handle_user_utterance(...):
+    Sends captured caller audio to STT -> passes text to LLM -> synthesizes 
+    response with TTS -> starts audio playback to caller.
+
+--------------------------------------------------------------------------------
+4.5. main.py (FastAPI Application, Routes, WebSockets & Server Lifecycle)
+--------------------------------------------------------------------------------
+Purpose:
+Application web framework. Configures CORS, static assets, REST routes, 
+Exotel callbacks, and browser testing WebSockets.
+
+Key Endpoints & Features:
+- Middleware:
+  CORS middleware enabled for all origins to allow browser client connections.
+- Helper extract_params(request):
+  Extracts parameters flexibly from URL query parameters, form data (Exotel standard), 
+  or JSON payloads.
+- REST Routes:
+  * GET /: Serves static/index.html (the web test console).
+  * GET /health: Returns JSON status of services, configured providers, active 
+    session count, and streaming mode flag.
+  * GET/POST /api/exotel/incoming & /api/exotel/passthru:
+    Primary Exotel webhook endpoint. Returns ExoML for either Gather mode or 
+    Media Stream mode based on Config.EXOTEL_USE_STREAM.
+  * GET/POST /api/exotel/gather-response:
+    Processes caller speech transcript from Exotel Gather input.
+  * GET/POST /api/exotel/status:
+    Call status webhook (hangup, completed, busy). Cleans up sessions.
+  * GET /api/session/{session_id}: Fetches session JSON.
+  * POST /api/session/{session_id}/end: Explicitly terminates a session.
+- WebSocket Routes:
+  * /ws/exotel-stream, /ws/media, /ws/audio, /ws/stream:
+    Receives Exotel telephony audio stream and connects to exotel_handler.process_media_stream.
+  * /ws/browser:
+    Dedicated WebSocket endpoint for browser-based testing. Transmits 16kHz PCM audio, 
+    provides live text transcripts (user and AI), and supports text input simulation.
+
+--------------------------------------------------------------------------------
+4.6. static/index.html (Web Test Console & Client Audio Engine)
+--------------------------------------------------------------------------------
+Purpose:
+Comprehensive interactive browser dashboard that allows testing all voice agent 
+capabilities without dialing a physical phone.
+
+Key Components:
+- Audio Processing:
+  * Uses Web Audio API (AudioContext) with ScriptProcessor / AudioWorklet.
+  * Downsamples microphone audio to 16kHz 16-bit linear PCM.
+  * Streams raw PCM chunks over /ws/browser.
+  * Receives and plays synthesized PCM audio returned by the server.
+- Visual User Interface:
+  * Live call status banner (Idle, Connecting, Active Call, AI Speaking).
+  * Real-time audio waveform visualizer using HTML5 Canvas.
+  * Chat transcript panel displaying user speech transcripts and AI replies.
+  * Diagnostics panel displaying STT provider, TTS provider, latency, and session ID.
+  * Interactive controls: Start Call, End Call, Mute, Text fallback input.
+
+--------------------------------------------------------------------------------
+4.7. test_e2e.py (Comprehensive End-to-End Test Suite)
+--------------------------------------------------------------------------------
+Purpose:
+Automated test harness validating all 12 operational requirements against 
+a live running instance of the FastAPI application.
+
+Test Coverage:
+1.  TC01: GET /health returns HTTP 200 with valid provider configuration.
+2.  TC02: GET / serves static/index.html UI.
+3.  TC03: POST /api/exotel/incoming returns valid XML ExoML.
+4.  TC04: ExoML contains <Say> and <Gather> (in HTTP mode) or <Stream> (in stream mode).
+5.  TC05: POST /api/exotel/gather-response processes speech and returns response ExoML.
+6.  TC06: POST /api/exotel/status terminates session on call completion.
+7.  TC07: WebSocket /ws/browser connects and completes greeting exchange.
+8.  TC08: WebSocket /ws/exotel-stream establishes Exotel-compatible handshake.
+9.  TC09: Inbound audio streaming generates transcript and AI audio reply.
+10. TC10: VAD detects speech termination and triggers processing pipeline.
+11. TC11: High-energy audio during playback triggers Barge-in cancellation.
+12. TC12: Session management correctly tracks multi-turn conversation history.
+
+--------------------------------------------------------------------------------
+4.8. Dockerfile & koyeb.yaml (Containerization & Cloud Deployment)
+--------------------------------------------------------------------------------
+- Dockerfile:
+  * Base Image: python:3.11-slim for minimal attack surface and small image size.
+  * System Dependencies: Installs build-essential, libasound2 (required by Azure 
+    Speech SDK for ALSA audio bindings), libssl3, ca-certificates, and curl.
+  * Security: Creates and runs as non-privileged appuser (UID 1000).
+  * Healthcheck: Built-in curl command probing /health every 30 seconds.
+  * Entrypoint: Runs uvicorn main:app --host 0.0.0.0 --port 8000.
+- koyeb.yaml:
+  * Defines serverless deployment spec for Koyeb platform.
+  * Configures nano instance in Frankfurt (fra) region.
+  * Maps HTTP port 8000 to public route with health check integration.
+  * Declares environment variable secrets for Deepgram, Azure, OpenRouter, Redis, 
+    and Exotel credentials.
+
+--------------------------------------------------------------------------------
+4.9. requirements.txt & Environment Files (.env, .env.example)
+--------------------------------------------------------------------------------
+- requirements.txt:
+  * fastapi & uvicorn: High-performance asynchronous API and ASGI server.
+  * websockets: Low-level WebSocket support for real-time duplex streaming.
+  * azure-cognitiveservices-speech: Official Azure Speech SDK.
+  * openai: Official OpenAI asynchronous client (configured for OpenRouter).
+  * httpx: Asynchronous HTTP client for Deepgram and Azure REST endpoints.
+  * redis: Redis client with connection pooling and timeout management.
+  * python-dotenv: Automatic .env file loading.
+  * pydantic: Data validation and settings management.
+  * numpy: Fallback numerical calculations for audio RMS energy.
+  * python-multipart: Form-data parsing for Exotel webhooks.
+- .env / .env.example:
+  Defines all required parameters with clear descriptions:
+  DEEPGRAM_API_KEY, STT_PROVIDER, TTS_PROVIDER, AZURE_SPEECH_KEY, AZURE_SPEECH_REGION, 
+  OPENROUTER_API_KEY, OPENROUTER_MODEL, REDIS_URL, EXOTEL_ACCOUNT_SID, EXOTEL_API_KEY, 
+  EXOTEL_API_TOKEN, EXOTEL_PHONE_NUMBER, EXOTEL_USE_STREAM, KOYEB_APP_URL.
+
+================================================================================
+5. AUDIO CODECS & TELEPHONY STREAMING SPECIFICATION
+================================================================================
+
+Telephony audio differs significantly from consumer web audio:
+1. μ-law (PCMU / G.711u):
+   - Sample Rate: 8,000 Hz (8 kHz).
+   - Bit Depth: 8-bit non-linear companding.
+   - Channels: 1 (Mono).
+   - Bitrate: 64 kbps (8,000 bytes/second).
+   - Chunk Pacing: Exotel expects 40ms audio chunks.
+     At 8,000 samples/second * 1 byte/sample * 0.040s = 320 bytes per chunk.
+
+2. Linear PCM 8kHz (Alternative Exotel Stream):
+   - Sample Rate: 8,000 Hz.
+   - Bit Depth: 16-bit signed integer (little-endian).
+   - Channels: 1 (Mono).
+   - Bitrate: 128 kbps (16,000 bytes/second).
+   - Chunk Pacing: 40ms * 16,000 bytes/second = 640 bytes per chunk.
+
+3. Linear PCM 16kHz (Browser Microphone / Web Audio):
+   - Sample Rate: 16,000 Hz.
+   - Bit Depth: 16-bit signed integer.
+   - Channels: 1 (Mono).
+   - Standard format for web browser testing and Azure Speech REST API.
+
+Conversion Pipeline:
+- μ-law to Linear PCM: Handled natively via Python standard library `audioop.ulaw2lin`.
+- Linear PCM to μ-law: Handled via `audioop.lin2ulaw`.
+- Sample Rate Resampling (8kHz <-> 16kHz): Handled via `audioop.ratecv`.
+
+================================================================================
+6. DEPLOYMENT & EXECUTION GUIDE
+================================================================================
+
+1. Local Development:
+   a. Create and activate virtual environment:
+      python -m venv venv
+      venv\Scripts\activate      (Windows)
+      source venv/bin/activate   (Linux/macOS)
+   b. Install dependencies:
+      pip install -r requirements.txt
+   c. Configure environment:
+      Copy .env.example to .env and insert your API keys.
+   d. Start application:
+      python main.py
+   e. Test via browser:
+      Open http://localhost:8000 in your browser to access the test console.
+
+2. Running Automated Tests:
+   python test_e2e.py
+
+3. Production Container Deployment:
+   docker build -t voice-agent .
+   docker run -p 8000:8000 --env-file .env voice-agent
+
+4. Connecting to Exotel:
+   - For HTTP Passthru/Gather Mode:
+     Set your Exotel Call Flow URL / Passthru Applet URL to:
+     https://<YOUR_DEPLOYED_URL>/api/exotel/incoming
+   - For WebSocket Media Stream Mode:
+     Set EXOTEL_USE_STREAM=true in your environment variables. Exotel will 
+     connect directly to wss://<YOUR_DEPLOYED_URL>/ws/exotel-stream.
+
+================================================================================
+END OF DOCUMENT
+================================================================================

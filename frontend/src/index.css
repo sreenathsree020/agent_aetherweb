@@ -1,0 +1,163 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-app: #f8fafc;
+  --bg-surface: #ffffff;
+  --bg-panel: #ffffff;
+  --bg-input: #f1f5f9;
+  --border-subtle: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --text-main: #09090b;
+  --text-muted: #64748b;
+  --text-faint: #94a3b8;
+  --card-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+}
+
+.dark {
+  --bg-app: #000000;
+  --bg-surface: #09090b;
+  --bg-panel: #111115;
+  --bg-input: #000000;
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.18);
+  --text-main: #f4f4f5;
+  --text-muted: #a1a1aa;
+  --text-faint: #71717a;
+  --card-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.8);
+}
+
+@layer base {
+  body {
+    margin: 0;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background-color: var(--bg-app);
+    color: var(--text-main);
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+}
+
+/* Minimalist Panel Utilities */
+.glass-panel {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--card-shadow);
+}
+
+.glass-panel-subtle {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+}
+
+.glass-interactive {
+  transition: all 0.15s ease-in-out;
+}
+.glass-interactive:hover {
+  border-color: var(--border-strong);
+}
+
+/* Custom scrollbars */
+.no-scrollbar::-webkit-scrollbar {
+  display: none !important;
+}
+.no-scrollbar {
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-app);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint);
+}
+
+/* React Flow Connector Handles & Edges */
+.react-flow__handle {
+  width: 8px !important;
+  height: 8px !important;
+  background-color: var(--text-main) !important;
+  border: 1.5px solid var(--bg-app) !important;
+  transition: transform 0.15s ease;
+}
+.react-flow__handle:hover {
+  transform: scale(1.3);
+}
+.react-flow__edge-path {
+  stroke: var(--text-muted) !important;
+  stroke-width: 1.5 !important;
+}
+
+/* React Flow Controls (Zoom In, Zoom Out, FitView, Lock Buttons) in Dark & Light Modes */
+.react-flow__controls {
+  border-radius: 0px !important;
+  overflow: hidden !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+}
+
+.dark .react-flow__controls {
+  background: #18181b !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
+.dark .react-flow__controls-button {
+  background: #18181b !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12) !important;
+  color: #f4f4f5 !important;
+  fill: #f4f4f5 !important;
+}
+
+.dark .react-flow__controls-button:hover {
+  background: #27272a !important;
+}
+
+.dark .react-flow__controls-button svg {
+  fill: #f4f4f5 !important;
+}
+
+.dark .react-flow__controls-button svg path {
+  fill: #f4f4f5 !important;
+}
+
+/* Light mode controls */
+:root:not(.dark) .react-flow__controls,
+.light .react-flow__controls {
+  background: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+}
+
+:root:not(.dark) .react-flow__controls-button,
+.light .react-flow__controls-button {
+  background: #ffffff !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+  color: #0f172a !important;
+  fill: #0f172a !important;
+}
+
+:root:not(.dark) .react-flow__controls-button:hover,
+.light .react-flow__controls-button:hover {
+  background: #f1f5f9 !important;
+}
+
+:root:not(.dark) .react-flow__controls-button svg,
+.light .react-flow__controls-button svg {
+  fill: #0f172a !important;
+}
+
+:root:not(.dark) .react-flow__controls-button svg path,
+.light .react-flow__controls-button svg path {
+  fill: #0f172a !important;
+}

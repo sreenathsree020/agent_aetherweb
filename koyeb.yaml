@@ -23,6 +23,15 @@ services:
         unhealthy_threshold: 3
         healthy_threshold: 1
     env:
+      # Deepgram Speech
+      - key: DEEPGRAM_API_KEY
+        value: ""
+        secret: true
+      - key: STT_PROVIDER
+        value: "deepgram"
+      - key: TTS_PROVIDER
+        value: "deepgram"
+
       # Azure Speech
       - key: AZURE_SPEECH_KEY
         value: ""

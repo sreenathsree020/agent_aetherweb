@@ -3,6 +3,9 @@ __pycache__/
 *.pyc
 *.pyo
 .env
-test_e2e.py
 *.log
 .agents/
+node_modules/
+frontend/node_modules/
+voice_agent.db
+backend/voice_agent.db
