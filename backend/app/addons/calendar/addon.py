@@ -6,6 +6,9 @@ class CalendarAddon(AbstractAddon):
     addon_type = "calendar"
     display_name = "Calendar Booking (Google Calendar & Cal.com)"
 
+    async def initialize(self) -> bool:
+        return True
+
     def get_tool_definitions(self) -> List[AddonToolDefinition]:
         return [
             AddonToolDefinition(

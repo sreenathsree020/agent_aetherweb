@@ -6,6 +6,9 @@ class CRMAddon(AbstractAddon):
     addon_type = "crm"
     display_name = "CRM Connector (HubSpot & Salesforce)"
 
+    async def initialize(self) -> bool:
+        return True
+
     def get_tool_definitions(self) -> List[AddonToolDefinition]:
         return [
             AddonToolDefinition(

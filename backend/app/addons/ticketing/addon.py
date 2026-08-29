@@ -6,6 +6,9 @@ class TicketingAddon(AbstractAddon):
     addon_type = "ticketing"
     display_name = "Ticketing (Zendesk & Freshdesk)"
 
+    async def initialize(self) -> bool:
+        return True
+
     def get_tool_definitions(self) -> List[AddonToolDefinition]:
         return [
             AddonToolDefinition(
