@@ -291,6 +291,63 @@ class VoiceAgent:
             return b""
 
     # ----------------------- LLM with Dynamic Addon Tools -----------------------
+    async def _get_tenant_llm(self, tenant_id: str):
+        """Resolve LLM client, model name, temperature, max_tokens, and prompt from DB or env."""
+        model = settings.OPENROUTER_MODEL
+        temperature = settings.TEMPERATURE
+        max_tokens = settings.MAX_TOKENS
+        custom_prompt = None
+        api_key = settings.OPENROUTER_API_KEY or os.getenv("OPENAI_API_KEY", "") or os.getenv("DEEPSEEK_API_KEY", "")
+        base_url = settings.OPENROUTER_BASE_URL
+
+        # 1. Query tenant's configured LLM from PostgreSQL database
+        try:
+            from app.core.database import AsyncSessionLocal
+            from app.models.addon import AddonConfig
+            from app.core.security import decrypt_credential
+            from sqlalchemy import select
+
+            async with AsyncSessionLocal() as db_session:
+                stmt = select(AddonConfig).where(
+                    (AddonConfig.tenant_id == tenant_id) | (AddonConfig.tenant_id == "default"),
+                    AddonConfig.addon_type == "llm",
+                    AddonConfig.enabled == True
+                ).order_by(AddonConfig.id.desc()).limit(1)
+                result = await db_session.execute(stmt)
+                llm_addon = result.scalar_one_or_none()
+                if llm_addon:
+                    decrypted = decrypt_credential(llm_addon.encrypted_config)
+                    if isinstance(decrypted, dict):
+                        cfg_key = decrypted.get("api_key")
+                        if cfg_key and not cfg_key.startswith("your_") and not cfg_key.startswith("sk-or-v1-••••"):
+                            api_key = cfg_key
+                        if decrypted.get("model"):
+                            model = decrypted["model"]
+                        if decrypted.get("temperature") is not None:
+                            temperature = float(decrypted["temperature"])
+                        if decrypted.get("max_tokens") is not None:
+                            max_tokens = int(decrypted["max_tokens"])
+                        if decrypted.get("system_prompt"):
+                            custom_prompt = decrypted["system_prompt"]
+
+                        provider = decrypted.get("provider", "openrouter")
+                        if provider == "openai":
+                            base_url = "https://api.openai.com/v1"
+                        elif provider == "groq":
+                            base_url = "https://api.groq.com/openai/v1"
+        except Exception as e:
+            logger.warning(f"Could not load tenant LLM from database: {e}")
+
+        if not api_key or api_key.startswith("your_") or api_key.startswith("sk-or-v1-••••"):
+            return None, model, temperature, max_tokens, custom_prompt
+
+        client = AsyncOpenAI(
+            base_url=base_url,
+            api_key=api_key,
+            default_headers={"HTTP-Referer": f"http://{settings.HOST}:{settings.PORT}", "X-Title": "VoiceAgent-Exotel"}
+        )
+        return client, model, temperature, max_tokens, custom_prompt
+
     async def generate_response(
         self,
         user_input: str,
@@ -301,16 +358,12 @@ class VoiceAgent:
         on_tool_called: Optional[Any] = None
     ) -> str:
         """Generate AI response with multi-turn conversation and dynamic addon tool calling."""
-        if not self.llm_client:
-            api_key = settings.OPENROUTER_API_KEY or os.getenv("OPENAI_API_KEY", "") or os.getenv("DEEPSEEK_API_KEY", "")
-            if api_key and not api_key.startswith("your_"):
-                self.llm_client = AsyncOpenAI(
-                    base_url=settings.OPENROUTER_BASE_URL,
-                    api_key=api_key,
-                    default_headers={"HTTP-Referer": f"http://{settings.HOST}:{settings.PORT}", "X-Title": "VoiceAgent-Exotel"}
-                )
-            else:
-                return "Thank you for calling. Our customer support intelligence engine is currently connecting. Please leave your phone number or call back shortly."
+        client, model, temperature, max_tokens, custom_prompt = await self._get_tenant_llm(tenant_id)
+        if not client:
+            client = self.llm_client
+
+        if not client:
+            return "Thank you for calling. Please configure your OpenRouter or OpenAI API key in the Koyeb Environment Variables or Admin Studio."
 
         t0 = time.time()
         context = call_context or {}
@@ -322,7 +375,7 @@ class VoiceAgent:
         currency = context.get("currency") or "INR (₹)"
         caller_phone = context.get("caller_phone") or context.get("caller") or ""
 
-        sys_prompt = (
+        sys_prompt = custom_prompt or (
             f"You are the official AI Customer Support voice assistant for {store_name}.\n"
             f"You speak politely, warmly, and concisely over telephone audio (1-2 sentences per response).\n"
             f"Active caller phone number: {caller_phone or 'Not detected'}.\n"
@@ -344,10 +397,10 @@ class VoiceAgent:
 
         try:
             create_params: Dict[str, Any] = {
-                "model": settings.OPENROUTER_MODEL,
+                "model": model,
                 "messages": messages,
-                "max_tokens": settings.MAX_TOKENS,
-                "temperature": settings.TEMPERATURE,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
             }
             if tools:
                 create_params["tools"] = tools
