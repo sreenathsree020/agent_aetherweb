@@ -33,7 +33,7 @@ async def list_calls(
     """Retrieve real call history and transcripts from database."""
     result = await db.execute(
         select(CallRecord)
-        .where(CallRecord.tenant_id == tenant.tenant_id)
+        .where(CallRecord.tenant_id.in_([tenant.tenant_id, str(tenant.store_id or "")]))
         .order_by(desc(CallRecord.created_at))
         .limit(50)
     )
@@ -63,7 +63,10 @@ async def get_call_stats(
 ):
     """Retrieve real aggregate statistics from database."""
     result = await db.execute(
-        select(CallRecord).where(CallRecord.tenant_id == tenant.tenant_id)
+        select(CallRecord)
+        .where(CallRecord.tenant_id.in_([tenant.tenant_id, str(tenant.store_id or "")]))
+        .order_by(desc(CallRecord.created_at))
+        .limit(500)
     )
     records = result.scalars().all()
 

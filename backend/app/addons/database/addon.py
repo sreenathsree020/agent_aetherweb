@@ -33,7 +33,7 @@ SELECT
 FROM "order" o
 LEFT JOIN payment p ON p.order_id = o.id
 LEFT JOIN shipment s ON s.order_id = o.id
-WHERE (o.store_id = :store_id OR :store_id IS NULL)
+WHERE o.store_id = :store_id
   AND (
       o.mobile = :caller_phone 
       OR REPLACE(REPLACE(o.mobile, ' ', ''), '-', '') = :clean_phone
@@ -50,7 +50,10 @@ class DatabaseAddon(AbstractAddon):
     def __init__(self, tenant_id: str, config: Dict[str, Any]):
         super().__init__(tenant_id, config)
         self.engine: Optional[AsyncEngine] = None
-        self.query_template: str = config.get("query_template", DEFAULT_STORE_QUERY).strip()
+        raw_q = str(config.get("query_template") or DEFAULT_STORE_QUERY).strip()
+        if DISALLOWED_SQL_PATTERNS.search(raw_q) or ";" in raw_q.rstrip(";"):
+            raw_q = DEFAULT_STORE_QUERY.strip()
+        self.query_template: str = raw_q or DEFAULT_STORE_QUERY.strip()
 
     async def initialize(self) -> bool:
         engine_type = self.config.get("engine", "postgresql").lower()
@@ -142,26 +145,28 @@ class DatabaseAddon(AbstractAddon):
                 return {"status": "error", "message": "Database connection is offline."}
 
         query = self.query_template.strip()
-        if DISALLOWED_SQL_PATTERNS.search(query):
-            logger.warning(f"[DatabaseAddon] Query rejected for safety: {query}")
+        if DISALLOWED_SQL_PATTERNS.search(query) or ";" in query.rstrip(";"):
+            logger.warning("[DatabaseAddon] Query rejected for safety")
             return {"status": "error", "message": "Disallowed SQL mutation command rejected."}
+        if ":store_id" not in query:
+            query = DEFAULT_STORE_QUERY.strip()
 
-        # Resolve parameter bindings
         caller_phone = str(arguments.get("caller_phone") or context.get("caller") or context.get("caller_phone") or "").strip()
         clean_phone = re.sub(r"[^\d+]", "", caller_phone)
         order_id = str(arguments.get("order_id") or "").strip()
         caller_email = str(context.get("caller_email") or "").strip()
 
-        # Extract numeric store id if present
-        store_id_raw = self.config.get("store_id") or self.tenant_id or context.get("store_id")
+        store_id_raw = self.config.get("store_id") or context.get("store_id") or self.tenant_id
         store_id: Optional[int] = None
-        if store_id_raw:
+        if store_id_raw is not None:
             digits = re.sub(r"[^\d]", "", str(store_id_raw))
             if digits:
                 try:
                     store_id = int(digits)
                 except ValueError:
                     store_id = None
+        if store_id is None:
+            return {"status": "error", "message": "Store context is required."}
 
         params = {
             "caller_phone": caller_phone,
@@ -184,7 +189,6 @@ class DatabaseAddon(AbstractAddon):
                 row = result.mappings().first()
                 if row:
                     data = {k: (str(v) if not isinstance(v, (int, float, bool, type(None))) else v) for k, v in dict(row).items()}
-                    logger.info(f"[DatabaseAddon] Query returned record: {data}")
                     return {"status": "found", "data": data}
                 
                 # If not found with exact phone, try fallback search with last 10 digits
@@ -199,11 +203,11 @@ class DatabaseAddon(AbstractAddon):
 
                 return {
                     "status": "not_found",
-                    "message": f"No order or payment record found for phone {caller_phone or order_id} in store #{store_id or 'all'}."
+                    "message": "No matching order was found for this store."
                 }
         except Exception as e:
             logger.error(f"[DatabaseAddon] Query execution failed: {e}")
-            return {"status": "error", "message": f"Query execution error: {str(e)}"}
+            return {"status": "error", "message": "Lookup is temporarily unavailable."}
 
     async def close(self) -> None:
         if self.engine:

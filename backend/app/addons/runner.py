@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Dict, Any, List, Optional
 from sqlalchemy import select
@@ -123,12 +124,15 @@ class AddonRunner:
             return {"error": f"Tool '{tool_name}' not available for tenant {tenant_id}"}
 
         try:
-            logger.info(f"[AddonRunner] Executing '{tool_name}' for tenant '{tenant_id}'...")
-            result = await addon.execute_tool(tool_name, arguments, context)
+            logger.info("[AddonRunner] Executing '%s'", tool_name)
+            result = await asyncio.wait_for(addon.execute_tool(tool_name, arguments, context), timeout=4.0)
             return result
-        except Exception as e:
-            logger.error(f"[AddonRunner] Error executing '{tool_name}': {e}", exc_info=True)
-            return {"error": str(e)}
+        except asyncio.TimeoutError:
+            logger.error("[AddonRunner] Timeout executing '%s'", tool_name)
+            return {"error": "Lookup timed out"}
+        except Exception:
+            logger.error("[AddonRunner] Error executing '%s'", tool_name, exc_info=True)
+            return {"error": "Tool failed"}
 
     def invalidate_tenant(self, tenant_id: str):
         self._tenant_addons_cache.pop(tenant_id, None)

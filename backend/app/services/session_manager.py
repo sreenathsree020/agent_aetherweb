@@ -56,15 +56,10 @@ class SessionManager:
     def save(self, session_id: str, session: dict, tenant_id: str = "default") -> None:
         session["last_activity"] = datetime.now().isoformat()
         self._memory_store[session_id] = session
-        if self.redis_client:
-            try:
-                self.redis_client.setex(
-                    self._key(session_id, tenant_id),
-                    self.timeout,
-                    json.dumps(session)
-                )
-            except Exception as e:
-                logger.warning(f"Redis save error: {e}")
+        if len(self._memory_store) > 400:
+            stale = [k for k, v in self._memory_store.items() if v.get("status") != "active"]
+            for k in stale[:80]:
+                self._memory_store.pop(k, None)
 
     def add_conversation_turn(
         self,
@@ -79,8 +74,7 @@ class SessionManager:
             "customer": customer_text,
             "agent": agent_response
         })
-        # Keep last 50 turns
-        session["conversation"] = session["conversation"][-50:]
+        session["conversation"] = session["conversation"][-12:]
         self.save(session_id, session, tenant_id)
 
     def record_tool_call(

@@ -112,7 +112,7 @@ async def get_current_tenant(
     if store_record:
         row = dict(store_record)
         return TenantContext(
-            tenant_id=str(raw_tenant),
+            tenant_id=str(row.get("id") or raw_tenant),
             store_id=row.get("id"),
             name=row.get("name") or "Store Support",
             subdomain=row.get("subdomain") or "",

@@ -100,7 +100,7 @@ class VoiceAgent:
     @property
     def http_client(self) -> httpx.AsyncClient:
         if self._http_client is None or self._http_client.is_closed:
-            self._http_client = httpx.AsyncClient(timeout=15.0)
+            self._http_client = httpx.AsyncClient(timeout=httpx.Timeout(8.0, connect=3.0))
         return self._http_client
 
     async def close(self):
@@ -355,7 +355,9 @@ class VoiceAgent:
         conversation_history: Optional[List[Dict[str, str]]] = None,
         tenant_id: str = "default",
         call_context: Optional[Dict[str, Any]] = None,
-        on_tool_called: Optional[Any] = None
+        on_tool_called: Optional[Any] = None,
+        cancel_event: Optional[asyncio.Event] = None,
+        on_partial: Optional[Any] = None,
     ) -> str:
         """Generate AI response with multi-turn conversation and dynamic addon tool calling."""
         client, model, temperature, max_tokens, custom_prompt = await self._get_tenant_llm(tenant_id)
@@ -365,10 +367,12 @@ class VoiceAgent:
         if not client:
             return "Thank you for calling. Please configure your OpenRouter or OpenAI API key in the Koyeb Environment Variables or Admin Studio."
 
+        if cancel_event and cancel_event.is_set():
+            return ""
+
         t0 = time.time()
         context = call_context or {}
 
-        # 1. Fetch active addon tools for tenant
         tools = await self.addon_runner.get_openai_tools_for_tenant(tenant_id)
 
         store_name = context.get("store_name") or context.get("name") or "our Store"
@@ -377,17 +381,15 @@ class VoiceAgent:
 
         sys_prompt = custom_prompt or (
             f"You are the official AI Customer Support voice assistant for {store_name}.\n"
-            f"You speak politely, warmly, and concisely over telephone audio (1-2 sentences per response).\n"
-            f"Active caller phone number: {caller_phone or 'Not detected'}.\n"
-            f"Store currency: {currency}.\n"
-            f"Always use the provided tools (get_order_status, get_order_details, get_payment_status, get_shipping_status, get_store_information, send_whatsapp_message, search_knowledge_base) to look up real facts.\n"
-            f"Never hallucinate or guess fake order numbers or tracking details. If an order is not found, politely ask the caller for their order ID or phone number."
+            f"Speak in 1-2 short spoken sentences. Do not mention tools, APIs, or internal errors.\n"
+            f"Caller phone: {caller_phone or 'unknown'}. Currency: {currency}.\n"
+            f"Use tools for real order, payment, shipping, and store facts. Never invent order numbers."
         )
 
         messages: List[Dict[str, Any]] = [{"role": "system", "content": sys_prompt}]
 
         if conversation_history:
-            for turn in conversation_history[-6:]:
+            for turn in conversation_history[-4:]:
                 if turn.get("customer"):
                     messages.append({"role": "user", "content": turn["customer"]})
                 if turn.get("agent"):
@@ -399,27 +401,33 @@ class VoiceAgent:
             create_params: Dict[str, Any] = {
                 "model": model,
                 "messages": messages,
-                "max_tokens": max_tokens,
+                "max_tokens": min(int(max_tokens or 160), 180),
                 "temperature": temperature,
+                "timeout": 12.0,
             }
             if tools:
                 create_params["tools"] = tools
                 create_params["tool_choice"] = "auto"
 
-            response = await self.llm_client.chat.completions.create(**create_params)
+            response = await asyncio.wait_for(client.chat.completions.create(**create_params), timeout=14.0)
+            if cancel_event and cancel_event.is_set():
+                return ""
             choice = response.choices[0]
 
-            # 2. Check if LLM requested tool execution
             if choice.message.tool_calls:
                 for tool_call in choice.message.tool_calls:
+                    if cancel_event and cancel_event.is_set():
+                        return ""
                     fn_name = tool_call.function.name
                     fn_args = {}
                     try:
-                        fn_args = json.loads(tool_call.function.arguments)
+                        fn_args = json.loads(tool_call.function.arguments or "{}")
                     except Exception:
-                        pass
+                        fn_args = {}
+                    if not isinstance(fn_args, dict):
+                        fn_args = {}
 
-                    logger.info(f"🛠️ [LLM TOOL CALL] {fn_name} args={fn_args}")
+                    logger.info("[LLM TOOL] %s", fn_name)
                     tool_result = await self.addon_runner.execute_tool(
                         tenant_id=tenant_id,
                         tool_name=fn_name,
@@ -433,7 +441,6 @@ class VoiceAgent:
                         except Exception:
                             pass
 
-                    # Append tool call and result to message history
                     messages.append({
                         "role": "assistant",
                         "tool_calls": [{
@@ -451,27 +458,55 @@ class VoiceAgent:
                         "content": json.dumps(tool_result)
                     })
 
-                # Secondary pass: generate answer using tool data
-                second_response = await self.llm_client.chat.completions.create(
-                    model=settings.OPENROUTER_MODEL,
+                stream = await client.chat.completions.create(
+                    model=model,
                     messages=messages,
-                    max_tokens=settings.MAX_TOKENS,
-                    temperature=settings.TEMPERATURE
+                    max_tokens=min(int(max_tokens or 160), 180),
+                    temperature=temperature,
+                    timeout=12.0,
+                    stream=True,
                 )
-                raw_reply = second_response.choices[0].message.content or ""
+                parts: List[str] = []
+                async for chunk in stream:
+                    if cancel_event and cancel_event.is_set():
+                        return ""
+                    delta = ""
+                    try:
+                        delta = chunk.choices[0].delta.content or ""
+                    except Exception:
+                        delta = ""
+                    if delta:
+                        parts.append(delta)
+                        if on_partial:
+                            try:
+                                maybe = on_partial(delta)
+                                if asyncio.iscoroutine(maybe):
+                                    await maybe
+                            except Exception:
+                                pass
+                raw_reply = "".join(parts)
             else:
                 raw_reply = choice.message.content or ""
+                if on_partial and raw_reply:
+                    try:
+                        maybe = on_partial(raw_reply)
+                        if asyncio.iscoroutine(maybe):
+                            await maybe
+                    except Exception:
+                        pass
 
-            # Strip internal chain-of-thought (<think>...</think>)
             reply = re.sub(r"<think>.*?</think>", "", raw_reply, flags=re.DOTALL).strip()
             if not reply:
-                reply = raw_reply
+                reply = raw_reply.strip() or "Sorry, I missed that. Could you say it again?"
 
             elapsed = (time.time() - t0) * 1000
-            logger.info(f"[LLM] Response ({elapsed:.0f}ms): \"{reply[:80]}...\"")
+            logger.info("[LLM] Response (%.0fms)", elapsed)
             return reply
+        except asyncio.TimeoutError:
+            logger.error("[LLM] Timeout")
+            return "I'm having a short delay looking that up. Could you repeat the order number?"
         except Exception as e:
-            logger.error(f"[LLM] Error: {e}", exc_info=True)
+            logger.error("[LLM] Error: %s", e)
             return "I apologize, I'm experiencing a brief issue retrieving that information. How else may I assist you?"
 
     async def generate_greeting(self) -> str:

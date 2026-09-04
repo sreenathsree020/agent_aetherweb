@@ -112,7 +112,8 @@ class ExotelHandler:
         audio_format = "mulaw"
         speech_started = False
         silence_frames = 0
-        SILENCE_THRESHOLD = 25
+        MAX_UTTERANCE = 8000 * 2 * 8
+        SILENCE_THRESHOLD = 18
         ENERGY_THRESHOLD = 250
         BARGE_IN_THRESHOLD = 800
         greeting_sent = False
@@ -225,8 +226,10 @@ class ExotelHandler:
                         if not speech_started:
                             speech_started = True
                             audio_buffer = audio_chunk
-                        else:
+                          else:
                             audio_buffer += audio_chunk
+                        if len(audio_buffer) > MAX_UTTERANCE:
+                            audio_buffer = audio_buffer[-MAX_UTTERANCE:]
                         silence_frames = 0
                     else:
                         if speech_started:
@@ -294,7 +297,7 @@ class ExotelHandler:
                 conversation_history=history,
                 tenant_id=tenant_id,
                 call_context=context,
-                on_tool_called=lambda tool, args, res: self.session_manager.record_tool_call(call_sid, tool, args, res, tenant_id)
+                on_tool_called=lambda tool, args, res: self.session_manager.record_tool_call(call_sid, tool, args, res, tenant_id),
             )
             self.session_manager.add_conversation_turn(call_sid, text, ai_text, tenant_id)
             logger.info(f"🤖 [AI AGENT]: \"{ai_text}\"")

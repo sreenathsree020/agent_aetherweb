@@ -225,7 +225,16 @@ class StoreToolsAddon(AbstractAddon):
         caller_phone = str(arguments.get("caller_phone") or context.get("caller") or context.get("caller_phone") or "").strip()
         clean_phone = normalize_phone(caller_phone)
         order_id = str(arguments.get("order_id") or "").strip()
-        store_id = self.store_id or context.get("store_id")
+        ctx_sid = context.get("store_id")
+        try:
+            ctx_sid = int(ctx_sid) if ctx_sid is not None and str(ctx_sid).isdigit() else None
+        except (TypeError, ValueError):
+            ctx_sid = None
+        if self.store_id and ctx_sid and int(self.store_id) != int(ctx_sid):
+            return {"status": "error", "message": "Store context mismatch."}
+        store_id = self.store_id or ctx_sid
+        if store_id is None and tool_name not in ("search_knowledge_base",):
+            return {"status": "error", "message": "Store context is required."}
 
         if tool_name == "get_order_status":
             return await self._get_order_status(caller_phone, clean_phone, order_id, store_id)
@@ -269,7 +278,7 @@ class StoreToolsAddon(AbstractAddon):
             s.tracking_url
         FROM "order" o
         LEFT JOIN shipment s ON s.order_id = o.id
-        WHERE (o.store_id = :store_id OR :store_id IS NULL)
+        WHERE o.store_id = :store_id
           AND (
               o.mobile = :phone 
               OR REPLACE(REPLACE(o.mobile, ' ', ''), '-', '') = :clean_phone
@@ -314,13 +323,13 @@ class StoreToolsAddon(AbstractAddon):
         sql_order = """
         SELECT o.id, o.total_price, o.status, o.shipping_address, o.city, o.pincode, o.created_at
         FROM "order" o
-        WHERE (o.store_id = :store_id OR :store_id IS NULL)
+        WHERE o.store_id = :store_id
           AND (
               CAST(o.id AS TEXT) = :order_id
               OR (
                   o.id = (
                       SELECT id FROM "order" 
-                      WHERE (store_id = :store_id OR :store_id IS NULL) 
+                       WHERE store_id = :store_id
                         AND (mobile = :clean_phone OR RIGHT(REPLACE(mobile, ' ', ''), 10) = RIGHT(:clean_phone, 10))
                       ORDER BY created_at DESC LIMIT 1
                   )
@@ -378,7 +387,7 @@ class StoreToolsAddon(AbstractAddon):
             o.status AS order_status
         FROM payment p
         JOIN "order" o ON o.id = p.order_id
-        WHERE (o.store_id = :store_id OR :store_id IS NULL)
+        WHERE o.store_id = :store_id
           AND (
               CAST(o.id AS TEXT) = :order_id
               OR CAST(p.order_id AS TEXT) = :order_id
@@ -386,7 +395,7 @@ class StoreToolsAddon(AbstractAddon):
               OR (
                   p.order_id = (
                       SELECT id FROM "order" 
-                      WHERE (store_id = :store_id OR :store_id IS NULL) 
+                       WHERE store_id = :store_id
                         AND (mobile = :clean_phone OR RIGHT(REPLACE(mobile, ' ', ''), 10) = RIGHT(:clean_phone, 10))
                       ORDER BY created_at DESC LIMIT 1
                   )
@@ -437,14 +446,14 @@ class StoreToolsAddon(AbstractAddon):
             o.pincode
         FROM shipment s
         JOIN "order" o ON o.id = s.order_id
-        WHERE (o.store_id = :store_id OR :store_id IS NULL)
+        WHERE o.store_id = :store_id
           AND (
               CAST(o.id AS TEXT) = :order_id
               OR s.awb_code = :order_id
               OR (
                   s.order_id = (
                       SELECT id FROM "order" 
-                      WHERE (store_id = :store_id OR :store_id IS NULL) 
+                       WHERE store_id = :store_id
                         AND (mobile = :clean_phone OR RIGHT(REPLACE(mobile, ' ', ''), 10) = RIGHT(:clean_phone, 10))
                       ORDER BY created_at DESC LIMIT 1
                   )
@@ -485,7 +494,7 @@ class StoreToolsAddon(AbstractAddon):
         sql = """
         SELECT id, first_name, last_name, email, phone, total_spent, orders_count
         FROM customer
-        WHERE (store_id = :store_id OR :store_id IS NULL)
+        WHERE store_id = :store_id
           AND (
               phone = :clean_phone 
               OR RIGHT(REPLACE(phone, ' ', ''), 10) = RIGHT(:clean_phone, 10)
@@ -520,8 +529,7 @@ class StoreToolsAddon(AbstractAddon):
         sql = """
         SELECT id, name, subdomain, custom_domain
         FROM store
-        WHERE (id = :store_id OR :store_id IS NULL)
-        ORDER BY id ASC
+        WHERE id = :store_id
         LIMIT 1
         """
         try:
@@ -554,11 +562,11 @@ class StoreToolsAddon(AbstractAddon):
         if not clean_recipient:
             return {"status": "error", "message": "Recipient phone number is invalid or missing."}
 
-        logger.info(f"📲 [WHATSAPP DISPATCH] To: {clean_recipient} | Store: {store_id} | Message: {message_text}")
+        logger.info("[WHATSAPP] Dispatch requested (not confirmed)")
         return {
-            "status": "sent",
+            "status": "not_sent",
             "recipient": clean_recipient,
-            "message": "WhatsApp confirmation and tracking link sent successfully."
+            "message": "WhatsApp is not confirmed as delivered. Do not tell the caller a message was sent.",
         }
 
     # ---------------- 8. Vector / Semantic RAG Search ----------------
