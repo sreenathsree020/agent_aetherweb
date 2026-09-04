@@ -226,7 +226,7 @@ class ExotelHandler:
                         if not speech_started:
                             speech_started = True
                             audio_buffer = audio_chunk
-                          else:
+                        else:
                             audio_buffer += audio_chunk
                         if len(audio_buffer) > MAX_UTTERANCE:
                             audio_buffer = audio_buffer[-MAX_UTTERANCE:]
